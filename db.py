@@ -82,7 +82,8 @@ def get_allowed_models(api_key):
     try:
         cursor = connection.cursor(dictionary=True)
         query = """
-        SELECT DISTINCT m.id, m.object, m.created, m.owned_by, m.permission, m.root, m.parent
+        SELECT DISTINCT m.id, m.object, m.created, m.owned_by, m.permission, m.root, m.parent,
+                        m.description, m.strengths, m.price_prompt, m.price_completion
         FROM models m
         LEFT JOIN api_key_model_access akma ON m.id = akma.model_id
         LEFT JOIN api_keys ak ON akma.api_key_id = ak.id

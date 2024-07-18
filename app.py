@@ -1,33 +1,25 @@
 from functools import wraps
-
 import requests
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 import json
 import os
 import time
-from typing import Dict, Any, Generator
+from typing import Dict, Any, Generator, List
 import logging
 import tiktoken
 
-
-# Import the OllamaApiWrapper from your existing file
 from llm_wrapper import OllamaApiWrapper
 from db import verify_api_key, create_api_key, get_allowed_models
 
 app = Flask(__name__)
 CORS(app)
 
-# Initialize the OllamaApiWrapper
 ollama_wrapper = OllamaApiWrapper()
-
-# Initialize the tokenizer
 tokenizer = tiktoken.get_encoding("cl100k_base")
-
 
 def count_tokens(text: str) -> int:
     return len(tokenizer.encode(text))
-
 
 def require_api_key(f):
     @wraps(f)
@@ -44,15 +36,24 @@ def require_api_key(f):
 
     return decorated
 
-
 @app.route('/v1/chat/completions', methods=['POST'])
 @require_api_key
 def chat_completions():
     data = request.json
     messages = data.get('messages', [])
+
+    if not any(message.get('role') == 'system' for message in messages):
+        default_system_message = {
+            "role": "system",
+            "content": "You are a helpful AI assistant."
+        }
+        messages.insert(0, default_system_message)
+
     stream = data.get('stream', False)
-    model = data.get('model', 'llama2')
+    model = data.get('model', 'llama3')
     temperature = data.get('temperature', 1.0)
+    max_tokens = data.get('max_tokens', 2048)  # New: maximum length
+    top_p = data.get('top_p', 1.0)  # New: top_p
     response_format = data.get('response_format', {})
     json_mode = response_format.get('type') == 'json_object' if response_format else False
 
@@ -72,12 +73,11 @@ def chat_completions():
     if stream:
         return Response(
             stream_with_context(
-                generate_streaming_response(prompt, model, json_mode, temperature, prompt_tokens)),
+                generate_streaming_response(messages, model, json_mode, temperature, max_tokens, top_p, prompt_tokens)),
             content_type='text/event-stream')
     else:
-        response = generate_complete_response(prompt, model, json_mode, temperature, prompt_tokens)
+        response = generate_complete_response(messages, model, json_mode, temperature, max_tokens, top_p, prompt_tokens)
         return jsonify(response)
-
 
 @app.route('/v1/models', methods=['GET'])
 def get_models():
@@ -97,6 +97,12 @@ def get_models():
                 "permission": model['permission'],
                 "root": model['root'],
                 "parent": model['parent'],
+                "description": model['description'],  # New: description
+                "strengths": model['strengths'],  # New: strengths
+                "price": {  # New: price
+                    "prompt": model['price_prompt'],
+                    "completion": model['price_completion']
+                }
             }
             formatted_models.append(formatted_model)
 
@@ -141,11 +147,12 @@ def construct_prompt(messages: list) -> str:
     return prompt.strip()
 
 
-def generate_streaming_response(prompt: str, model: str, json_mode: bool, temperature: float,
-                                prompt_tokens: int) -> Generator[str, None, None]:
+def generate_streaming_response(messages: List[Dict[str, str]], model: str, json_mode: bool, temperature: float,
+                                max_tokens: int, top_p: float, prompt_tokens: int) -> Generator[str, None, None]:
     accumulated_json = ""
     completion_tokens = 0
-    for chunk in ollama_wrapper.generate_response(prompt, stream=True, json_mode=json_mode, temperature=temperature):
+    for chunk in ollama_wrapper.generate_response(messages, stream=True, json_mode=json_mode, temperature=temperature,
+                                                  max_tokens=max_tokens, top_p=top_p):
         chunk_text = chunk.get("response", "")
         completion_tokens += count_tokens(chunk_text)
         total_tokens = prompt_tokens + completion_tokens
@@ -173,10 +180,10 @@ def generate_streaming_response(prompt: str, model: str, json_mode: bool, temper
 
     yield "data: [DONE]\n\n"
 
-
-def generate_complete_response(prompt: str, model: str, json_mode: bool, temperature: float,
-                               prompt_tokens: int) -> Dict[str, Any]:
-    response = ollama_wrapper.generate_response(prompt, stream=False, json_mode=json_mode, temperature=temperature)
+def generate_complete_response(messages: List[Dict[str, str]], model: str, json_mode: bool, temperature: float,
+                               max_tokens: int, top_p: float, prompt_tokens: int) -> Dict[str, Any]:
+    response = ollama_wrapper.generate_response(messages, stream=False, json_mode=json_mode, temperature=temperature,
+                                                max_tokens=max_tokens, top_p=top_p)
 
     if json_mode:
         try:
@@ -190,7 +197,6 @@ def generate_complete_response(prompt: str, model: str, json_mode: bool, tempera
     total_tokens = prompt_tokens + completion_tokens
 
     return format_response_as_openai_response(response, model, prompt_tokens, completion_tokens, total_tokens)
-
 
 def format_response_as_openai_response(response: Dict[str, Any], model: str, prompt_tokens: int, completion_tokens: int, total_tokens: int) -> Dict[str, Any]:
     return {

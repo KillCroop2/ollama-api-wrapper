@@ -1,3 +1,5 @@
+-- database.sql
+
 -- Drop existing tables if they exist
 DROP TABLE IF EXISTS api_key_model_access;
 DROP TABLE IF EXISTS models;
@@ -12,7 +14,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Updated table for models to match OpenAI's structure
+-- Updated table for models with new fields
 CREATE TABLE IF NOT EXISTS models (
     id VARCHAR(255) PRIMARY KEY,
     object VARCHAR(50) DEFAULT 'model',
@@ -21,7 +23,11 @@ CREATE TABLE IF NOT EXISTS models (
     permission JSON,
     root VARCHAR(255),
     parent VARCHAR(255),
-    is_public BOOLEAN DEFAULT FALSE
+    is_public BOOLEAN DEFAULT FALSE,
+    description TEXT,
+    strengths TEXT,
+    price_prompt FLOAT,
+    price_completion FLOAT
 );
 
 -- Table for API key to model mappings (unchanged)
@@ -34,7 +40,7 @@ CREATE TABLE IF NOT EXISTS api_key_model_access (
     UNIQUE (api_key_id, model_id)
 );
 
--- Insert some example models
-INSERT INTO models (id, created, owned_by, permission, root, parent, is_public) VALUES
-('llama3:latest', UNIX_TIMESTAMP(), 'openai', '[]', 'llama3:latest', NULL, TRUE),
-('gemma:7b', UNIX_TIMESTAMP(), 'openai', '[]', 'gemma:7b', NULL, TRUE)
+-- Insert example models with new fields
+INSERT INTO models (id, created, owned_by, permission, root, parent, is_public, description, strengths, price_prompt, price_completion) VALUES
+('llama3:latest', UNIX_TIMESTAMP(), 'meta', '[]', 'llama3:latest', NULL, TRUE, 'Latest version of LLAMA3 model', 'General purpose, strong reasoning capabilities', 0.0003, 0.002),
+('gemma:7b', UNIX_TIMESTAMP(), 'google', '[]', 'gemma:7b', NULL, TRUE, 'Gemma 7B model', 'Efficient for various NLP tasks', 0.00028, 0.0018);
